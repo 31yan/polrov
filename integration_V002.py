@@ -3,6 +3,7 @@ import sys
 import time
 import os
 from run_ncnn import NCNNRunner
+import random
 
 import board
 import busio
@@ -13,23 +14,54 @@ i2c = busio.I2C(board.SCL, board.SDA)
 pwm = PCA9685(i2c)
 pwm.frequency = 50
 
-# Motor channel grup 1 (Cylinder)
-MOTOR_CYLINDER_CHANNELS = [1, 14]
+# Motor channel grup
+MOTOR_CHANNELS = {
+    "motor_1": 1,
+    "motor_2": 14,
+    "motor_3": 3,
+    "motor_4": 12,
+    "motor_5": 5,
+    "motor_6": 10
+}
 
-# Motor channel grup 2 (Gate)
-MOTOR_GATE_CHANNELS = [5, 10]
-
-PWM_MIN = 750      # Motor mati / idle
+PWM_MIN = 700      # Motor mati / idle
 PWM_MEDIUM = 1300  # Kecepatan sedang
 PWM_SLOW = 1000    # Kecepatan lambat
 
-# Toleransi jarak cylinder (cm)
-CYLINDER_TARGET_DISTANCE = 180
+# Toleransi jarak cylinder dan gawang (cm)
+CYLINDER_CLOSE_DISTANCE = 150  # Jarak silinder untuk mundur
+CYLINDER_AWAY_DISTANCE = 200   # Jarak silinder untuk ke kiri atau kanan
+GATE_DISTANCE = 180
 DISTANCE_TOLERANCE = 10
 
 def set_motor_throttle(channel, throttle_us):
     pwm_value = int((throttle_us / 20000) * 65535)
     pwm.channels[channel].duty_cycle = pwm_value
+
+def move_forward():
+    # Motor 5 dan 10 untuk maju
+    set_motor_throttle(MOTOR_CHANNELS["motor_5"], PWM_MEDIUM)
+    set_motor_throttle(MOTOR_CHANNELS["motor_10"], PWM_MEDIUM)
+
+def move_backward():
+    # Motor 1 dan 14 untuk mundur
+    set_motor_throttle(MOTOR_CHANNELS["motor_1"], PWM_MEDIUM)
+    set_motor_throttle(MOTOR_CHANNELS["motor_14"], PWM_MEDIUM)
+
+def move_left():
+    # Motor 1 dan 5 untuk ke kiri
+    set_motor_throttle(MOTOR_CHANNELS["motor_1"], PWM_MEDIUM)
+    set_motor_throttle(MOTOR_CHANNELS["motor_5"], PWM_MEDIUM)
+
+def move_right():
+    # Motor 14 dan 10 untuk ke kanan
+    set_motor_throttle(MOTOR_CHANNELS["motor_14"], PWM_MEDIUM)
+    set_motor_throttle(MOTOR_CHANNELS["motor_10"], PWM_MEDIUM)
+
+def stop_all_motors():
+    # Semua motor mati
+    for ch in MOTOR_CHANNELS.values():
+        set_motor_throttle(ch, PWM_MIN)
 
 def run_realtime_multiobj(model_path="yolo11n_ncnn_model", confidence_thres=0.5, iou_thres=0.45, save_threshold=0.6):
     cap = cv2.VideoCapture(0)
@@ -57,12 +89,10 @@ def run_realtime_multiobj(model_path="yolo11n_ncnn_model", confidence_thres=0.5,
     print("Tekan 'q' untuk keluar.")
 
     # Arming semua motor ke PWM_MIN
-    for ch in MOTOR_CYLINDER_CHANNELS + MOTOR_GATE_CHANNELS:
-        set_motor_throttle(ch, PWM_MIN)
+    stop_all_motors()
     time.sleep(3)
-    print("Motor siap...")
 
-    motor_cylinder_active = False
+    robot_active = True
 
     try:
         while True:
@@ -116,50 +146,35 @@ def run_realtime_multiobj(model_path="yolo11n_ncnn_model", confidence_thres=0.5,
                 if class_name == "Cylinder" and score >= confidence_thres and d_cm is not None:
                     cylinder_distance = d_cm
 
-            # Kontrol motor Cylinder channel 1 & 14
-            if cylinder_distance is not None and abs(cylinder_distance - CYLINDER_TARGET_DISTANCE) <= DISTANCE_TOLERANCE:
-                if not motor_cylinder_active:
-                    print(f"Cylinder terdeteksi pada jarak {cylinder_distance:.1f}cm. Menyalakan motor channel 1 & 14...")
-                motor_cylinder_active = True
-                for ch in MOTOR_CYLINDER_CHANNELS:
-                    set_motor_throttle(ch, PWM_MEDIUM)
-
-                # Jika motor cylinder menyala, matikan motor gate
-                for ch in MOTOR_GATE_CHANNELS:
-                    set_motor_throttle(ch, PWM_MIN)
-                status_gate_motor = "Motor gate channel 5 & 10: MATI (Cylinder motor menyala)"
-            else:
-                if motor_cylinder_active:
-                    print("Cylinder tidak terdeteksi di jarak target. Mematikan motor channel 1 & 14 dan menyalakan motor gate...")
-                motor_cylinder_active = False
-                for ch in MOTOR_CYLINDER_CHANNELS:
-                    set_motor_throttle(ch, PWM_MIN)
-
-                # Motor gate menyala dengan kecepatan tergantung deteksi gate
-                if gate_detected:
-                    for ch in MOTOR_GATE_CHANNELS:
-                        set_motor_throttle(ch, PWM_SLOW)
-                    status_gate_motor = "Motor gate channel 5 & 10: LAMBAT (Gate detected)"
+            # Kontrol robot berdasarkan deteksi objek
+            if cylinder_distance is not None and abs(cylinder_distance - CYLINDER_CLOSE_DISTANCE) <= DISTANCE_TOLERANCE:
+                # Jika Cylinder terdeteksi pada jarak ~150 cm, robot mundur
+                print(f"Cylinder terdeteksi pada jarak {cylinder_distance:.1f}cm. Robot mundur...")
+                move_backward()
+                robot_active = False
+            elif cylinder_distance is not None and abs(cylinder_distance - CYLINDER_AWAY_DISTANCE) <= DISTANCE_TOLERANCE:
+                # Jika Cylinder terdeteksi pada jarak ~200 cm, robot bergerak ke kiri atau kanan untuk menghindar
+                print(f"Cylinder terdeteksi pada jarak {cylinder_distance:.1f}cm. Robot menghindar...")
+                if random.choice([True, False]):
+                    move_left()
                 else:
-                    for ch in MOTOR_GATE_CHANNELS:
-                        set_motor_throttle(ch, PWM_MEDIUM)
-                    status_gate_motor = "Motor gate channel 5 & 10: SEDANG (No gate)"
+                    move_right()
+                robot_active = False
+            elif gate_detected:
+                # Jika Gate terdeteksi, robot akan bergerak lebih lambat
+                print("Gate terdeteksi. Robot bergerak lebih lambat...")
+                set_motor_throttle(MOTOR_CHANNELS["motor_5"], PWM_SLOW)
+                set_motor_throttle(MOTOR_CHANNELS["motor_10"], PWM_SLOW)
+            elif robot_active:
+                # Robot bergerak maju jika tidak ada halangan
+                move_forward()
 
             # Tampilkan status FPS dan motor
             end_time = time.time()
             fps = 1 / (end_time - start_time)
             status = "Screenshot: ON" if screenshot_enabled else "Screenshot: OFF"
-
-            motor_cyl_status = "ON" if motor_cylinder_active else "OFF"
-
             cv2.putText(dimg, f"FPS: {fps:.2f} | {status}", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (150, 150, 150), 2)
-
-            cv2.putText(dimg, f"Cylinder Motor (1&14): {motor_cyl_status}", (10, 55),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-
-            cv2.putText(dimg, status_gate_motor, (10, 80),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
             cv2.imshow("Deteksi + Kendali Motor", dimg)
 
@@ -175,8 +190,7 @@ def run_realtime_multiobj(model_path="yolo11n_ncnn_model", confidence_thres=0.5,
 
     finally:
         print("Menghentikan semua motor dan membersihkan...")
-        for ch in MOTOR_CYLINDER_CHANNELS + MOTOR_GATE_CHANNELS:
-            set_motor_throttle(ch, PWM_MIN)
+        stop_all_motors()
         pwm.deinit()
         cap.release()
         cv2.destroyAllWindows()
