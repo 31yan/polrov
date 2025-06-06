@@ -157,13 +157,8 @@ def run_realtime_multiobj(model_path="obstacle_ncnn_model", confidence_thres=0.5
                 if class_name == "Cylinder" and score >= confidence_thres and d_cm is not None:
                     cylinder_distance = d_cm
 
-            # Kontrol robot berdasarkan deteksi objek
-            if cylinder_distance is not None and abs(cylinder_distance - CYLINDER_CLOSE_DISTANCE) <= DISTANCE_TOLERANCE:
-                # Jika Cylinder terdeteksi pada jarak ~150 cm, robot mundur
-                print(f"Cylinder terdeteksi pada jarak {cylinder_distance:.1f}cm. Robot mundur...")
-                move_backward()
-                robot_active = False
-            elif cylinder_distance is not None and abs(cylinder_distance - CYLINDER_AWAY_DISTANCE) <= DISTANCE_TOLERANCE:
+            # Kontrol robot berdasarkan deteksi objek 
+            if cylinder_distance is not None and abs(cylinder_distance - CYLINDER_AWAY_DISTANCE) <= DISTANCE_TOLERANCE:
                 # Jika Cylinder terdeteksi pada jarak ~200 cm, robot bergerak ke kiri atau kanan untuk menghindar
                 print(f"Cylinder terdeteksi pada jarak {cylinder_distance:.1f}cm. Robot menghindar...")
                 if random.choice([True, False]):
@@ -180,12 +175,13 @@ def run_realtime_multiobj(model_path="obstacle_ncnn_model", confidence_thres=0.5
                 # Robot bergerak maju jika tidak ada halangan
                 move_forward()
 
+
             # Tampilkan status FPS dan motor
             end_time = time.time()
             fps = 1 / (end_time - start_time)
             status = "Screenshot: ON" if screenshot_enabled else "Screenshot: OFF"
             cv2.putText(dimg, f"FPS: {fps:.2f} | {status}", (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (150, 150, 150), 2)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 2)
 
             cv2.imshow("Deteksi + Kendali Motor", dimg)
 
