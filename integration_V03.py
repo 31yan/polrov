@@ -165,8 +165,8 @@ def run_realtime_multiobj(model_path="obstacle_ncnn_model", confidence_thres=0.5
                     move_left()
                 else:
                     move_right()
-                    
-                while time.time() - start_escape_time < 10:
+
+                while time.time() - start_escape_time < 30:
                     pass 
                 robot_active = False
             elif gate_detected:
