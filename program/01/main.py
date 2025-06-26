@@ -1,54 +1,154 @@
-import time
 from motor_control import MotorControl
 from ncnn_runner import NCNNRunner
 import cv2
+import os
+import time
+import random
 
-# Inisialisasi kontrol motor dan deteksi objek
-motor_control = MotorControl()
-detector = NCNNRunner(model_path="obstacle_ncnn_model")
+class RobotControl:
+    def __init__(self, model_path="obstacle_ncnn_model", confidence_thres=0.8, iou_thres=0.45, save_threshold=0.6):
+        self.model_path = model_path
+        self.confidence_thres = confidence_thres
+        self.iou_thres = iou_thres
+        self.save_threshold = save_threshold
 
-def run_detection():
-    cap = cv2.VideoCapture(0)  # Menggunakan perangkat kamera default
-    if not cap.isOpened():
-        print("Cannot open camera")
-        return
+        self.cap = cv2.VideoCapture(0)
+        if not self.cap.isOpened():
+            print("Tidak dapat membuka kamera.")
+            self.cap = None
+            return
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            print("Failed to grab frame")
-            break  # Keluar jika gagal menangkap frame
+        self.detector = NCNNRunner(self.model_path)
+        self.motor_control = MotorControl()
 
-        # Menampilkan hasil dari kamera untuk debug
-        cv2.imshow("Camera Feed", frame)  # Menampilkan gambar kamera
+        self.output_dir = "screenshots"
+        os.makedirs(self.output_dir, exist_ok=True)
 
-        # Jalankan deteksi objek menggunakan NCNNRunner
-        result = detector.run(frame)
+        self.screenshot_enabled = False
+        self.robot_active = True
 
-        # Update confidence berdasarkan hasil deteksi
-        cylinder_confidence = 0
-        gate_confidence = 0
-        for i in range(len(result[0])):
-            class_name = detector.class_names[result[2][i]]
-            score = result[1][i]
+    def run(self):
+        if self.cap is None:
+            print("Kamera tidak tersedia.")
+            return
 
-            # Update confidence untuk Cylinder dan Gate
-            if class_name == "Cylinder" and score > cylinder_confidence:
-                cylinder_confidence = score
-            if class_name == "Gate" and score > gate_confidence:
-                gate_confidence = score
+        print("Tekan 's' untuk AKTIF/NONAKTIFKAN screenshot otomatis.")
+        print("Tekan 'q' untuk keluar.")
 
-        # Kontrol pergerakan robot berdasarkan confidence
-        motor_control.move_based_on_confidence(cylinder_confidence, gate_confidence, 
-                                                detector.Cylinder_CONFIDENCE_THRESHOLD, 
-                                                detector.Gate_CONFIDENCE_THRESHOLD)
+        self.motor_control.stop_all_motors()
+        time.sleep(3)
 
-        # Tekan 'q' untuk keluar
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+        try:
+            while True:
+                start_time = time.time()
+                ret, frame = self.cap.read()
+                if not ret:
+                    print("Gagal membaca frame.")
+                    break
 
-    cap.release()
-    cv2.destroyAllWindows()
+                im2 = self.detector.preprocess(frame)
+                y = self.detector.predict(im2)
+                r = self.detector.postprocess(frame, y, self.confidence_thres, self.iou_thres)
+
+                dimg = frame.copy()
+                box_got, score_got, class_id_got = r
+
+                gate_detected = False
+                cylinder_detected = False
+
+                for i in range(len(box_got)):
+                    box = box_got[i]
+                    score = score_got[i]
+                    class_id = class_id_got[i]
+                    class_name = self.detector.class_names[class_id]
+
+                    if class_name == "Gate" and score >= self.confidence_thres:
+                        gate_detected = True
+
+                    if class_name == "Cylinder" and score >= self.confidence_thres:
+                        cylinder_detected = True
+
+                if cylinder_detected:
+                    print("Silinder terdeteksi. Robot bergerak ke kiri atau kanan secara acak...")
+                    self.motor_control.move_down()
+                    if random.choice([True, False]):
+                        self.motor_control.move_left()
+                        arah = "kiri"
+                    else:
+                        self.motor_control.move_right()
+                        arah = "kanan"
+
+                    print(f"Robot bergerak ke {arah} ...")
+                    time.sleep(0)
+                    self.motor_control.stop_all_motors()
+                    self.robot_active = True
+
+                elif gate_detected:
+                    print("Gate terdeteksi. Robot bergerak lebih lambat...")
+                    self.motor_control.set_motor_throttle(5, 1000)
+                    self.motor_control.set_motor_throttle(6, 1000)
+
+                elif self.robot_active:
+                    self.motor_control.move_forward()
+
+                end_time = time.time()
+                fps = 1 / (end_time - start_time)
+                status = "Screenshot: ON" if self.screenshot_enabled else "Screenshot: OFF"
+                cv2.putText(dimg, f"FPS: {fps:.2f} | {status}", (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+
+                cv2.imshow("POLROV", dimg)
+
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord('q'):
+                    break
+                elif key == ord('s'):
+                    self.screenshot_enabled = not self.screenshot_enabled
+                    print(f"[i] Screenshot sekarang {'AKTIF' if self.screenshot_enabled else 'NONAKTIF'}")
+
+        except KeyboardInterrupt:
+            print("Program dihentikan.")
+        finally:
+            print("Menghentikan semua motor dan membersihkan...")
+            self.motor_control.stop_all_motors()
+            if self.cap:
+                self.cap.release()
+            cv2.destroyAllWindows()
+
+    def move_forward(self):
+        self.motor_control.move_forward()
+
+    def move_backward(self):
+        self.motor_control.move_backward()
+
+    def move_left(self):
+        self.motor_control.move_left()
+
+    def move_right(self):
+        self.motor_control.move_right()
+
+    def move_up(self):
+        self.motor_control.move_up()
+
+    def move_down(self):
+        self.motor_control.move_down()
+
+    def stop_all_motors(self):
+        self.motor_control.stop_all_motors()
+
+    def get_frame(self):
+        if self.cap is not None:
+            ret, frame = self.cap.read()
+            if ret:
+                return frame
+        return None
+
+    def release_resources(self):
+        self.stop_all_motors()
+        if self.cap:
+            self.cap.release()
+        cv2.destroyAllWindows()
 
 if __name__ == "__main__":
-    run_detection()
+    robot = RobotControl()
+    robot.run()
