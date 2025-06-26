@@ -43,7 +43,7 @@ class RobotControl:
     def stop_all_motors(self):
         self.motor_control.stop_all_motors()
 
-    def run_realtime_multiobj(model_path="obstacle_ncnn_model", confidence_thres=0.8, iou_thres=0.45, save_threshold=0.6):
+    def run_realtime_multiobj(self, model_path="obstacle_ncnn_model", confidence_thres=0.8, iou_thres=0.45, save_threshold=0.6):
         cap = cv2.VideoCapture(0)
         if not cap.isOpened():
             print("Tidak dapat membuka kamera.")
@@ -141,4 +141,5 @@ class RobotControl:
 
 if __name__ == "__main__":
     model_dir = "obstacle_ncnn_model"
-    run_realtime_multiobj(model_path=model_dir)
+    rc = RobotControl()
+    rc.run_realtime_multiobj(model_path=model_dir)
