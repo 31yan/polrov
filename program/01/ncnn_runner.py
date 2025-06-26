@@ -137,7 +137,7 @@ class NCNNRunner:
             b[0] -= self.dw
             b[1] -= self.dh
 
-        return boxes, scores, class_ids
+        return boxes, scores, class_ids  # Kembalikan 3 elemen
 
     def calculate_distance(self, class_name, width, focal_length):
         """
