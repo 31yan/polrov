@@ -127,7 +127,10 @@ class NCNNRunner:
                 scores.append(max_score)
                 class_ids.append(class_id)
 
+        # Non-Maximum Suppression
         indices = cv2.dnn.NMSBoxes(boxes, scores, confidence_thres, iou_thres)
+
+        # Mengambil box yang terpilih berdasarkan NMS
         boxes = np.array(boxes)[indices]
         scores = np.array(scores)[indices]
         class_ids = np.array(class_ids)[indices]
@@ -137,7 +140,8 @@ class NCNNRunner:
             b[0] -= self.dw
             b[1] -= self.dh
 
-        return boxes, scores, class_ids  # Kembalikan 3 elemen
+        # Kembalikan tiga elemen terpisah
+        return boxes, scores, class_ids
 
     def calculate_distance(self, class_name, width, focal_length):
         """
@@ -165,15 +169,16 @@ class NCNNRunner:
             print(f"Jarak ke {class_name}: {distance} cm")
 
         if show:
-            self.show(input_image, output)  # Menampilkan hasil deteksi
+            self.show(input_image, (boxes, scores, class_ids))  # Menampilkan hasil deteksi
         return boxes, scores, class_ids
 
     def show(self, input_image, output):
         """
         Menampilkan gambar dengan bounding box dan label kelas.
         """
+        boxes, scores, class_ids = output  # Memastikan output sudah berisi 3 elemen yang benar
         dimg = input_image.copy()
-        boxes, scores, class_ids = output
+
         for i in range(len(boxes)):
             x, y, w, h = boxes[i]
             score = scores[i]
@@ -182,7 +187,9 @@ class NCNNRunner:
             cv2.putText(dimg, f"{self.class_names[class_id]} {score:.2f}", 
                         (int(x), int(y) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (36, 255, 12), 2)
 
+        # Simpan gambar hasil deteksi
         cv2.imwrite("result.png", dimg)
+        
         import matplotlib.pyplot as plt
         plt.figure(figsize=(10,10))
         dimgv = cv2.cvtColor(dimg, cv2.COLOR_BGR2RGB)
