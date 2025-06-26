@@ -8,7 +8,7 @@ motor_control = MotorControl()
 detector = NCNNRunner(model_path="obstacle_ncnn_model")
 
 def run_detection():
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(0)  # Menggunakan perangkat kamera default
     if not cap.isOpened():
         print("Cannot open camera")
         return
@@ -16,9 +16,13 @@ def run_detection():
     while True:
         ret, frame = cap.read()
         if not ret:
-            break
+            print("Failed to grab frame")
+            break  # Keluar jika gagal menangkap frame
 
-        # Menjalankan deteksi objek menggunakan NCNNRunner
+        # Menampilkan hasil dari kamera untuk debug
+        cv2.imshow("Camera Feed", frame)  # Menampilkan gambar kamera
+
+        # Jalankan deteksi objek menggunakan NCNNRunner
         result = detector.run(frame)
 
         # Update confidence berdasarkan hasil deteksi
